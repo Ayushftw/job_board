@@ -151,15 +151,6 @@ npm run test:coverage # With coverage
 npm run build         # Production build
 ```
 
-## Resume Bullet Points
-
-1. **Built** a production-grade AI-powered career platform (Next.js, TypeScript, PostgreSQL) featuring resume parsing via pdf-parse + Gemini, async job processing via Upstash QStash, Redis caching, and a Manifest V3 Chrome extension for LinkedIn job import
-
-2. **Designed** a layered service/repository architecture with DTO validation, structured logging (Pino), rate limiting, and Sentry-ready error monitoring serving AI features at 10 req/min per user
-
-3. **Implemented** a job match engine using Gemini 1.5 Flash that scores resume profiles against job descriptions, identifies skill gaps, and surfaces recommendations — cached via Upstash Redis Cache Aside pattern
-
-4. **Shipped** end-to-end product: Kanban board (DnD + optimistic updates), analytics dashboard (Recharts), AI message generator, public profiles, Google OAuth — deployed to Vercel with automated Prisma migrations
 
 ## Project Structure
 
