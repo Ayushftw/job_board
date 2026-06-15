@@ -16,6 +16,20 @@ export const generateMessageSchema = z.object({
   context: z.string().min(10),
 });
 
+export const generateOutreachSchema = z.object({
+  applicationId: z.string().min(1),
+  resumeId: z.string().optional(),
+});
+
+export const sendOutreachSchema = z.object({
+  to: z.string().email(),
+  subject: z.string().min(1),
+  body: z.string().min(10),
+  viaMailto: z.boolean().optional(),
+});
+
 export type MatchScoreInput = z.infer<typeof matchScoreSchema>;
 export type InterviewPrepInput = z.infer<typeof interviewPrepSchema>;
 export type GenerateMessageInput = z.infer<typeof generateMessageSchema>;
+export type GenerateOutreachInput = z.infer<typeof generateOutreachSchema>;
+export type SendOutreachInput = z.infer<typeof sendOutreachSchema>;

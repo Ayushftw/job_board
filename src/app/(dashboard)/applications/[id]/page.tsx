@@ -1,19 +1,23 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, ExternalLink, Mail, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/applications/StatusBadge";
+import { OutreachModal } from "@/components/applications/OutreachModal";
 import type { ApplicationStatus } from "@prisma/client";
 import { toast } from "sonner";
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [outreachOpen, setOutreachOpen] = useState(false);
 
   const { data: app, isLoading } = useQuery({
     queryKey: ["application", id],
@@ -23,6 +27,22 @@ export default function ApplicationDetailPage() {
       return res.json();
     },
   });
+
+  async function handleMarkApplied() {
+    const res = await fetch(`/api/applications/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ status: "APPLIED" }),
+    });
+    if (res.ok) {
+      toast.success("Marked as applied");
+      queryClient.invalidateQueries({ queryKey: ["application", id] });
+      queryClient.invalidateQueries({ queryKey: ["applications-kanban"] });
+    } else {
+      toast.error("Failed to update status");
+    }
+  }
 
   async function handleDelete() {
     if (!confirm("Delete this application?")) return;
@@ -42,9 +62,15 @@ export default function ApplicationDetailPage() {
         <Link href="/applications" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back
         </Link>
-        <Button variant="destructive" size="sm" onClick={handleDelete}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setOutreachOpen(true)}>
+            <Mail className="mr-2 h-4 w-4" />
+            Send Outreach
+          </Button>
+          <Button variant="destructive" size="sm" onClick={handleDelete}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-start justify-between">
@@ -55,6 +81,17 @@ export default function ApplicationDetailPage() {
         <StatusBadge status={app.status as ApplicationStatus} />
       </div>
 
+      {app.status !== "APPLIED" && (
+        <div className="flex items-center justify-between rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Haven&apos;t applied yet? Mark this job once you&apos;ve submitted your application.
+          </p>
+          <Button size="sm" onClick={handleMarkApplied}>
+            Mark as Applied
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         {app.salary && (
           <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Salary</p><p className="font-medium">{app.salary}</p></CardContent></Card>
@@ -64,6 +101,9 @@ export default function ApplicationDetailPage() {
         )}
         {app.recruiterName && (
           <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Recruiter</p><p className="font-medium">{app.recruiterName}</p></CardContent></Card>
+        )}
+        {app.recruiterEmail && (
+          <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Recruiter Email</p><p className="font-medium">{app.recruiterEmail}</p></CardContent></Card>
         )}
         {app.jobUrl && (
           <Card><CardContent className="p-4">
@@ -105,6 +145,17 @@ export default function ApplicationDetailPage() {
           </CardContent>
         </Card>
       )}
+      <OutreachModal
+        open={outreachOpen}
+        onOpenChange={setOutreachOpen}
+        applicationId={id}
+        company={app.company}
+        role={app.role}
+        recruiterName={app.recruiterName}
+        recruiterEmail={app.recruiterEmail}
+        jobDescription={app.jobDescription}
+        onSent={() => queryClient.invalidateQueries({ queryKey: ["application", id] })}
+      />
     </div>
   );
 }

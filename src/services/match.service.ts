@@ -6,9 +6,11 @@ import {
   INTERVIEW_PREP_PROMPT,
   MESSAGE_PROMPT,
   RESUME_PARSE_PROMPT,
+  OUTREACH_EMAIL_PROMPT,
 } from "@/lib/gemini";
 import { resumeRepository } from "@/repositories/resume.repository";
 import { applicationRepository } from "@/repositories/application.repository";
+import { userRepository } from "@/repositories/user.repository";
 import {
   aiMessageRepository,
   activityRepository,
@@ -17,6 +19,11 @@ import {
 import { cacheAside } from "@/lib/redis";
 import type { MatchScoreResult, InterviewPrepResult, ResumeProfileData } from "@/types";
 import type { GenerateMessageInput } from "@/dto/ai.dto";
+
+export interface OutreachEmailResult {
+  subject: string;
+  body: string;
+}
 
 export const matchService = {
   async computeMatch(
@@ -179,5 +186,62 @@ export const aiService = {
     }
 
     return { content };
+  },
+
+  async generateOutreachEmail(
+    userId: string,
+    applicationId: string,
+    resumeId?: string
+  ): Promise<OutreachEmailResult> {
+    const [app, user] = await Promise.all([
+      applicationRepository.findById(applicationId, userId),
+      userRepository.findById(userId),
+    ]);
+    if (!app) throw new Error("Not found");
+    if (!user) throw new Error("Unauthorized");
+
+    let resume = resumeId
+      ? await resumeRepository.findById(resumeId, userId)
+      : null;
+
+    if (!resume) {
+      const resumes = await resumeRepository.findMany(userId);
+      resume = resumes.find((r) => r.profile && r.parseStatus === "DONE") ?? resumes[0] ?? null;
+    }
+
+    const profileStr = resume?.profile
+      ? JSON.stringify({
+          skills: resume.profile.skills,
+          technologies: resume.profile.technologies,
+          yearsOfExperience: resume.profile.yearsOfExperience,
+          education: resume.profile.education,
+          summary: resume.profile.summary,
+        })
+      : JSON.stringify({ summary: "No resume uploaded yet. Write a general outreach email." });
+
+    await usageMetricsRepository.increment(userId, "totalAIRequests");
+
+    const candidateName = user.name ?? "Candidate";
+
+    try {
+      const text = await generateText(
+        OUTREACH_EMAIL_PROMPT(
+          candidateName,
+          app.company,
+          app.role,
+          app.location ?? "",
+          app.recruiterName ?? "",
+          profileStr,
+          app.jobDescription ?? `${app.role} at ${app.company}`
+        )
+      );
+      return parseJsonFromAI<OutreachEmailResult>(text);
+    } catch {
+      const greeting = app.recruiterName ? `Hi ${app.recruiterName},` : "Hello Hiring Team,";
+      return {
+        subject: `Application for ${app.role} — ${candidateName}`,
+        body: `${greeting}\n\nI am writing to express my interest in the ${app.role} position at ${app.company}. My background aligns well with the role, and I would welcome the opportunity to contribute to your team.\n\nThank you for your time and consideration.\n\nBest regards,\n${candidateName}`,
+      };
+    }
   },
 };

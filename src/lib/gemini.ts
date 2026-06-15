@@ -95,3 +95,42 @@ export const MESSAGE_PROMPT = (
 Generate a professional ${type} message. Return ONLY the message text, no JSON.
 Context: ${context}
 `;
+
+export const OUTREACH_EMAIL_PROMPT = (
+  candidateName: string,
+  company: string,
+  role: string,
+  location: string,
+  recruiterName: string,
+  resumeProfile: string,
+  jobDescription: string
+) => `
+Write a concise, professional cold outreach email for a job application.
+The candidate is reaching out to a recruiter or hiring manager — NOT writing a formal cover letter.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "subject": "Short compelling subject line",
+  "body": "Full email body with greeting, 2-3 short paragraphs, and a professional sign-off using the candidate's name"
+}
+
+Rules:
+- Keep body under 200 words
+- Mention 2-3 relevant skills/experiences from the resume that match the job
+- Sound human and confident, not generic or overly formal
+- If recruiter name is provided, address them by name; otherwise use "Hi there" or "Hello Hiring Team"
+- Do not include placeholders like [Your Name] — use the actual candidate name for sign-off
+- Do not include the subject line inside the body
+
+Candidate name: ${candidateName}
+Company: ${company}
+Role: ${role}
+Location: ${location || "Not specified"}
+Recruiter name: ${recruiterName || "Unknown"}
+
+Resume profile:
+${resumeProfile}
+
+Job description:
+${jobDescription.slice(0, 6000)}
+`;

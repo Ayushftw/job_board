@@ -14,20 +14,33 @@ export async function sendEmail({
   to,
   subject,
   html,
+  replyTo,
 }: {
   to: string;
   subject: string;
   html: string;
+  replyTo?: string;
 }) {
   const client = getResend();
   const from = process.env.RESEND_FROM_EMAIL ?? "JobTrackr <onboarding@resend.dev>";
 
   if (!client) {
-    console.log("[email:fallback]", { to, subject });
+    console.log("[email:fallback]", { to, subject, replyTo, from });
     return { id: "dev-fallback" };
   }
 
-  const result = await client.emails.send({ from, to, subject, html });
+  const result = await client.emails.send({
+    from,
+    to,
+    subject,
+    html,
+    ...(replyTo ? { replyTo } : {}),
+  });
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
   return result;
 }
 

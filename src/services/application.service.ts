@@ -56,7 +56,7 @@ export const applicationService = {
       recruiterEmail: input.recruiterEmail || null,
       notes: input.notes || null,
       jobDescription: input.jobDescription || null,
-      status: input.status ?? "APPLIED",
+      status: input.status ?? "SCREENING",
     });
 
     await activityRepository.create({

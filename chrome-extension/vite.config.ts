@@ -14,7 +14,10 @@ export default defineConfig({
         "background/service-worker": resolve(__dirname, "src/background/service-worker.ts"),
       },
       output: {
-        entryFileNames: "[name].js",
+        entryFileNames: (chunk) => {
+          if (chunk.name === "popup") return "popup.js";
+          return "[name].js";
+        },
         chunkFileNames: "chunks/[name].js",
         assetFileNames: "assets/[name][extname]",
       },

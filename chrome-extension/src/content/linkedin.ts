@@ -1,57 +1,34 @@
-export interface LinkedInJobData {
-  company: string;
-  role: string;
-  location: string;
-  jobUrl: string;
-  jobDescription: string;
-  employmentType: string;
+import { scrapeLinkedInJob, isLinkedInJobPage } from "../lib/scrape";
+
+function storeJob() {
+  if (!isLinkedInJobPage(location.href)) return null;
+  const job = scrapeLinkedInJob();
+  if (job) chrome.storage.local.set({ scrapedJob: job });
+  return job;
 }
 
-export function scrapeLinkedInJob(): LinkedInJobData | null {
-  try {
-    const role =
-      document.querySelector(".job-details-jobs-unified-top-card__job-title h1")?.textContent?.trim() ??
-      document.querySelector("h1.t-24")?.textContent?.trim() ??
-      "";
+// Scrape on load (with retries for dynamic content)
+storeJob();
+setTimeout(storeJob, 1500);
+setTimeout(storeJob, 4000);
 
-    const company =
-      document.querySelector(".job-details-jobs-unified-top-card__company-name")?.textContent?.trim() ??
-      document.querySelector(".job-details-jobs-unified-top-card__primary-description-container a")?.textContent?.trim() ??
-      "";
-
-    const location =
-      document.querySelector(".job-details-jobs-unified-top-card__bullet")?.textContent?.trim() ??
-      document.querySelector(".job-details-jobs-unified-top-card__primary-description-container")?.textContent?.trim() ??
-      "";
-
-    const employmentType =
-      document.querySelector(".job-details-jobs-unified-top-card__job-insight")?.textContent?.trim() ??
-      "Full-time";
-
-    const descriptionEl =
-      document.querySelector(".jobs-description__content") ??
-      document.querySelector("#job-details") ??
-      document.querySelector(".jobs-box__html-content");
-
-    const jobDescription = descriptionEl?.textContent?.trim() ?? "";
-
-    if (!role || !company) return null;
-
-    return {
-      company,
-      role,
-      location,
-      jobUrl: window.location.href.split("?")[0],
-      jobDescription,
-      employmentType,
-    };
-  } catch {
-    return null;
+// Re-scrape on SPA navigation
+let lastUrl = location.href;
+const observer = new MutationObserver(() => {
+  if (location.href !== lastUrl) {
+    lastUrl = location.href;
+    storeJob();
   }
+});
+if (document.body) {
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// Store scraped data for popup access
-const job = scrapeLinkedInJob();
-if (job) {
-  chrome.storage.local.set({ scrapedJob: job });
-}
+// Popup requests fresh scrape
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === "scrapeJob") {
+    const job = storeJob();
+    sendResponse({ job, url: location.href });
+    return true;
+  }
+});

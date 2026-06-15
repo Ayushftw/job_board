@@ -47,8 +47,12 @@ export async function invalidateCache(key: string) {
 export async function invalidateCachePattern(pattern: string) {
   const client = getRedis();
   if (!client) return;
-  const keys = await client.keys(pattern);
-  if (keys.length > 0) {
-    await client.del(...keys);
+  try {
+    const keys = await client.keys(pattern);
+    if (keys.length > 0) {
+      await client.del(...keys);
+    }
+  } catch (error) {
+    console.warn("[redis] invalidateCachePattern failed:", pattern, error);
   }
 }

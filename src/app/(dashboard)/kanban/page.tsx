@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,15 +9,33 @@ import { APPLICATION_STATUSES, STATUS_LABELS } from "@/types";
 import type { ApplicationStatus } from "@prisma/client";
 import { toast } from "sonner";
 
+interface KanbanApplication {
+  id: string;
+  company: string;
+  role: string;
+  salary?: string;
+  status: ApplicationStatus;
+}
+
+interface KanbanData {
+  items: KanbanApplication[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export default function KanbanPage() {
   const queryClient = useQueryClient();
+  const { data: session, status: sessionStatus } = useSession();
+  const userId = session?.user?.id;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["applications-kanban"],
+    queryKey: ["applications-kanban", userId],
+    enabled: sessionStatus === "authenticated" && !!userId,
     queryFn: async () => {
-      const res = await fetch("/api/applications?limit=100");
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
+      const res = await fetch("/api/applications?limit=100", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load applications");
+      return res.json() as Promise<KanbanData>;
     },
   });
 
@@ -25,39 +44,61 @@ export default function KanbanPage() {
       const res = await fetch(`/api/applications/${id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error ?? "Failed to update status");
+      }
+      return payload;
+    },
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: ["applications-kanban", userId] });
+      const prev = queryClient.getQueryData<KanbanData>(["applications-kanban", userId]);
+      queryClient.setQueryData<KanbanData>(["applications-kanban", userId], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          items: old.items.map((a) => (a.id === id ? { ...a, status } : a)),
+        };
+      });
+      return { prev };
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(["applications-kanban", userId], ctx.prev);
+      }
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications-kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["applications-kanban", userId] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
-    onError: () => toast.error("Failed to update status"),
   });
 
   const apps = data?.items ?? [];
 
   const columns = APPLICATION_STATUSES.reduce(
     (acc, status) => {
-      acc[status] = apps.filter((a: { status: ApplicationStatus }) => a.status === status);
+      acc[status] = apps.filter((a) => a.status === status);
       return acc;
     },
-    {} as Record<ApplicationStatus, typeof apps>
+    {} as Record<ApplicationStatus, KanbanApplication[]>
   );
 
   function onDragEnd(result: DropResult) {
     if (!result.destination) return;
     const newStatus = result.destination.droppableId as ApplicationStatus;
     const appId = result.draggableId;
-    const app = apps.find((a: { id: string }) => a.id === appId);
+    const app = apps.find((a) => a.id === appId);
+    if (!APPLICATION_STATUSES.includes(newStatus)) return;
     if (app && app.status !== newStatus) {
       statusMutation.mutate({ id: appId, status: newStatus });
     }
   }
 
-  if (isLoading) return <Skeleton className="h-96 w-full" />;
+  if (sessionStatus === "loading" || isLoading) return <Skeleton className="h-96 w-full" />;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -67,9 +108,10 @@ export default function KanbanPage() {
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="overflow-x-auto pb-4">
+          <div className="flex w-max min-w-full gap-4">
           {APPLICATION_STATUSES.map((status) => (
-            <div key={status} className="min-w-[280px] flex-shrink-0">
+            <div key={status} className="w-[280px] shrink-0">
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium">
@@ -81,7 +123,7 @@ export default function KanbanPage() {
                   <Droppable droppableId={status}>
                     {(provided) => (
                       <div ref={provided.innerRef} {...provided.droppableProps} className="min-h-[200px] space-y-2">
-                        {columns[status]?.map((app: { id: string; company: string; role: string; salary?: string }, index: number) => (
+                        {columns[status]?.map((app, index) => (
                           <Draggable key={app.id} draggableId={app.id} index={index}>
                             {(provided, snapshot) => (
                               <div
@@ -106,6 +148,7 @@ export default function KanbanPage() {
               </Card>
             </div>
           ))}
+          </div>
         </div>
       </DragDropContext>
     </div>
