@@ -32,7 +32,12 @@ export async function* streamText(prompt: string) {
 }
 
 export function parseJsonFromAI<T>(text: string): T {
-  const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error("Failed to parse AI response as JSON");
   return JSON.parse(jsonMatch[0]) as T;
 }
@@ -55,13 +60,21 @@ export const MATCH_SCORE_PROMPT = (
   resumeProfile: string,
   jobDescription: string
 ) => `
-Compare this resume profile against the job description. Return ONLY valid JSON:
+Compare this resume profile against the job description.
+Return ONLY valid JSON with exactly these camelCase keys:
 {
   "score": 75,
-  "matchedSkills": ["skill1"],
-  "missingSkills": ["skill2"],
-  "recommendations": ["recommendation1"]
+  "matchedSkills": ["skill1", "skill2"],
+  "missingSkills": ["skill3"],
+  "recommendations": ["recommendation1", "recommendation2"]
 }
+
+Rules:
+- score must be an integer from 0 to 100
+- matchedSkills must list resume skills/technologies that fit the job
+- missingSkills must list important job requirements missing from the resume
+- recommendations must include at least 2 actionable suggestions
+- Do not return empty arrays unless truly none apply
 
 Resume Profile:
 ${resumeProfile}

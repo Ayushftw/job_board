@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       if (app?.jobDescription) jobDescription = app.jobDescription;
     }
 
-    if (!jobDescription) throw new Error("Job description is required");
+    if (!jobDescription) return apiError("Job description is required. Add one to the application first.", 400);
 
     return matchService.computeMatch(uid, input.resumeId, jobDescription, input.applicationId);
   });

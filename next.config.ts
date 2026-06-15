@@ -12,6 +12,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["pdf-parse"],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "logo.clearbit.com" },

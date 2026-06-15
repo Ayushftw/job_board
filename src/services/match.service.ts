@@ -25,6 +25,99 @@ export interface OutreachEmailResult {
   body: string;
 }
 
+function extractStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function getProfileSkills(profile: { skills: unknown; technologies: unknown }): string[] {
+  const fromValue = (value: unknown): string[] => {
+    if (Array.isArray(value)) return extractStringArray(value);
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (Array.isArray(parsed)) return extractStringArray(parsed);
+      } catch {
+        return value.trim() ? [value.trim()] : [];
+      }
+    }
+    return [];
+  };
+
+  return [...new Set([...fromValue(profile.skills), ...fromValue(profile.technologies)].map((s) => s.trim()))];
+}
+
+function normalizeMatchScoreResult(raw: unknown): MatchScoreResult | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const record = raw as Record<string, unknown>;
+  const nestedSkills =
+    record.skills && typeof record.skills === "object"
+      ? (record.skills as Record<string, unknown>)
+      : null;
+
+  const matchedSkills = extractStringArray(
+    record.matchedSkills ??
+      record.matched_skills ??
+      record.matched ??
+      nestedSkills?.matched ??
+      nestedSkills?.matchedSkills
+  );
+  const missingSkills = extractStringArray(
+    record.missingSkills ??
+      record.missing_skills ??
+      record.missing ??
+      nestedSkills?.missing ??
+      nestedSkills?.missingSkills
+  );
+  const recommendations = extractStringArray(
+    record.recommendations ?? record.recommendation ?? record.suggestions
+  );
+
+  const scoreValue = record.score ?? record.matchScore ?? record.match_score;
+  const score = typeof scoreValue === "number" ? scoreValue : Number(scoreValue);
+
+  return {
+    score: Number.isFinite(score) ? Math.min(100, Math.max(0, Math.round(score))) : 0,
+    matchedSkills,
+    missingSkills,
+    recommendations,
+  };
+}
+
+function isUsableMatchResult(result: MatchScoreResult): boolean {
+  return (
+    result.score > 0 ||
+    result.matchedSkills.length > 0 ||
+    result.missingSkills.length > 0 ||
+    result.recommendations.length > 0
+  );
+}
+
+function skillMatchesJd(skill: string, jdLower: string): boolean {
+  const normalized = skill.toLowerCase().trim();
+  if (!normalized) return false;
+  if (jdLower.includes(normalized)) return true;
+
+  const stem = normalized.replace(/\.(js|ts|tsx|jsx)$/i, "").replace(/\s+/g, "");
+  const jdCompact = jdLower.replace(/\s+/g, "");
+  return stem.length > 2 && jdCompact.includes(stem);
+}
+
+function mergeMatchResults(ai: MatchScoreResult, fallback: MatchScoreResult): MatchScoreResult {
+  return {
+    score: ai.score > 0 ? ai.score : fallback.score,
+    matchedSkills: ai.matchedSkills.length > 0 ? ai.matchedSkills : fallback.matchedSkills,
+    missingSkills: ai.missingSkills.length > 0 ? ai.missingSkills : fallback.missingSkills,
+    recommendations: ai.recommendations.length > 0 ? ai.recommendations : fallback.recommendations,
+  };
+}
+
 export const matchService = {
   async computeMatch(
     userId: string,
@@ -32,22 +125,28 @@ export const matchService = {
     jobDescription: string,
     applicationId?: string
   ): Promise<MatchScoreResult> {
-    const cacheKey = `match:${resumeId}:${applicationId ?? jobDescription.slice(0, 50)}`;
+    const cacheKey = `match:v2:${resumeId}:${applicationId ?? jobDescription.slice(0, 50)}`;
 
     return cacheAside(cacheKey, 3600, async () => {
       const resume = await resumeRepository.findById(resumeId, userId);
       if (!resume?.profile) throw new Error("Resume profile not found. Wait for parsing to complete.");
 
+      const profileSkills = getProfileSkills(resume.profile);
       const profileStr = JSON.stringify({
-        skills: resume.profile.skills,
-        technologies: resume.profile.technologies,
+        skills: profileSkills,
         yearsOfExperience: resume.profile.yearsOfExperience,
         summary: resume.profile.summary,
       });
 
+      const fallback = this.fallbackMatch(resume.profile, jobDescription);
+
       try {
         const text = await generateText(MATCH_SCORE_PROMPT(profileStr, jobDescription));
-        const result = parseJsonFromAI<MatchScoreResult>(text);
+        const normalized = normalizeMatchScoreResult(parseJsonFromAI<unknown>(text));
+
+        const result = !normalized || !isUsableMatchResult(normalized)
+          ? fallback
+          : mergeMatchResults(normalized, fallback);
 
         await usageMetricsRepository.increment(userId, "totalMatchAnalyses");
         if (applicationId) {
@@ -61,7 +160,7 @@ export const matchService = {
 
         return result;
       } catch {
-        return this.fallbackMatch(resume.profile, jobDescription);
+        return fallback;
       }
     });
   },
@@ -70,14 +169,14 @@ export const matchService = {
     profile: { skills: unknown; technologies: unknown },
     jobDescription: string
   ): MatchScoreResult {
-    const skills = [
-      ...(Array.isArray(profile.skills) ? (profile.skills as string[]) : []),
-      ...(Array.isArray(profile.technologies) ? (profile.technologies as string[]) : []),
-    ];
+    const skills = getProfileSkills(profile);
     const jdLower = jobDescription.toLowerCase();
-    const matchedSkills = skills.filter((s) => jdLower.includes(s.toLowerCase()));
-    const missingSkills = skills.filter((s) => !jdLower.includes(s.toLowerCase())).slice(0, 5);
-    const score = skills.length > 0 ? Math.round((matchedSkills.length / skills.length) * 100) : 50;
+    const matchedSkills = skills.filter((skill) => skillMatchesJd(skill, jdLower));
+    const missingSkills = skills
+      .filter((skill) => !skillMatchesJd(skill, jdLower))
+      .slice(0, 8);
+    const score =
+      skills.length > 0 ? Math.round((matchedSkills.length / skills.length) * 100) : 50;
 
     return {
       score,

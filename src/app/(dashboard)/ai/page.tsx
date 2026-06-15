@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useMounted } from "@/hooks/use-mounted";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,15 +15,45 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { MESSAGE_TYPE_LABELS } from "@/types";
 
+type MatchResult = {
+  score: number;
+  matchedSkills: string[];
+  missingSkills: string[];
+  recommendations: string[];
+};
+
+function normalizeMatchResult(data: unknown): MatchResult {
+  const r = data as Record<string, unknown>;
+  const nestedSkills =
+    r.skills && typeof r.skills === "object" ? (r.skills as Record<string, unknown>) : null;
+  const toStringArray = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+  const scoreValue = r.score ?? r.matchScore ?? r.match_score;
+  const score = typeof scoreValue === "number" ? scoreValue : Number(scoreValue);
+
+  return {
+    score: Number.isFinite(score) ? Math.min(100, Math.max(0, Math.round(score))) : 0,
+    matchedSkills: toStringArray(
+      r.matchedSkills ?? r.matched_skills ?? r.matched ?? nestedSkills?.matched ?? nestedSkills?.matchedSkills
+    ),
+    missingSkills: toStringArray(
+      r.missingSkills ?? r.missing_skills ?? r.missing ?? nestedSkills?.missing ?? nestedSkills?.missingSkills
+    ),
+    recommendations: toStringArray(r.recommendations ?? r.recommendation ?? r.suggestions),
+  };
+}
+
 export default function AIPage() {
   const [selectedResume, setSelectedResume] = useState("");
   const [selectedApp, setSelectedApp] = useState("");
-  const [matchResult, setMatchResult] = useState<{ score: number; matchedSkills: string[]; missingSkills: string[]; recommendations: string[] } | null>(null);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [interviewPrep, setInterviewPrep] = useState<{ questions: Array<{ type: string; question: string; tip: string }>; roadmap: string[] } | null>(null);
   const [messageType, setMessageType] = useState("FOLLOW_UP");
   const [messageContext, setMessageContext] = useState("");
   const [generatedMessage, setGeneratedMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const mounted = useMounted();
 
   const { data: resumes } = useQuery({
     queryKey: ["resumes"],
@@ -53,9 +84,10 @@ export default function AIPage() {
     });
     setLoading(false);
     if (res.ok) {
-      setMatchResult(await res.json());
+      setMatchResult(normalizeMatchResult(await res.json()));
     } else {
-      toast.error("Match analysis failed");
+      const err = await res.json().catch(() => null);
+      toast.error(err?.error ?? "Match analysis failed");
     }
   }
 
@@ -99,6 +131,16 @@ export default function AIPage() {
 
   const parsedResumes = resumes?.filter((r: { parseStatus: string }) => r.parseStatus === "DONE") ?? [];
 
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-full max-w-md" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -134,8 +176,10 @@ export default function AIPage() {
                   <Select value={selectedApp} onValueChange={setSelectedApp}>
                     <SelectTrigger><SelectValue placeholder="Select application" /></SelectTrigger>
                     <SelectContent>
-                      {apps?.items?.map((a: { id: string; company: string; role: string }) => (
-                        <SelectItem key={a.id} value={a.id}>{a.company} — {a.role}</SelectItem>
+                      {apps?.items?.map((a: { id: string; company: string; role: string; jobDescription?: string }) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {`${a.company} — ${a.role}${!a.jobDescription ? " (no JD)" : ""}`}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -151,17 +195,29 @@ export default function AIPage() {
                   <div>
                     <p className="text-sm font-medium">Matched Skills</p>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {matchResult.matchedSkills.map((s) => <Badge key={s} variant="default">{s}</Badge>)}
+                      {matchResult.matchedSkills.length > 0 ? (
+                        matchResult.matchedSkills.map((s) => <Badge key={s} variant="default">{s}</Badge>)
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No matched skills identified</p>
+                      )}
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Missing Skills</p>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {matchResult.missingSkills.map((s) => <Badge key={s} variant="outline">{s}</Badge>)}
+                      {matchResult.missingSkills.length > 0 ? (
+                        matchResult.missingSkills.map((s) => <Badge key={s} variant="outline">{s}</Badge>)
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No missing skills identified</p>
+                      )}
                     </div>
                   </div>
                   <ul className="list-disc pl-5 text-sm text-muted-foreground">
-                    {matchResult.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                    {matchResult.recommendations.length > 0 ? (
+                      matchResult.recommendations.map((r, i) => <li key={i}>{r}</li>)
+                    ) : (
+                      <li>No recommendations available</li>
+                    )}
                   </ul>
                 </div>
               )}

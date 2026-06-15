@@ -28,9 +28,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body suppressHydrationWarning className="min-h-full antialiased">
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <Providers>{children}</Providers>
-        </ThemeProvider>
+        <div suppressHydrationWarning className="min-h-full">
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+            <Providers>{children}</Providers>
+          </ThemeProvider>
+        </div>
       </body>
     </html>
   );

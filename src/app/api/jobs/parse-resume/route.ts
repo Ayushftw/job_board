@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createRequire } from "node:module";
 import { Receiver } from "@upstash/qstash";
 import { resumeRepository } from "@/repositories/resume.repository";
 import { resumeService } from "@/services/resume.service";
@@ -21,6 +22,13 @@ async function verifyQStash(request: NextRequest, body: string) {
   return receiver.verify({ signature, body });
 }
 
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  const require = createRequire(import.meta.url);
+  const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string }>;
+  const parsed = await pdfParse(buffer);
+  return parsed.text;
+}
+
 export async function POST(request: NextRequest) {
   const bodyText = await request.text();
   const verified = await verifyQStash(request, bodyText);
@@ -34,13 +42,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(fileUrl);
     const buffer = Buffer.from(await response.arrayBuffer());
-
-    const pdfParseModule = await import("pdf-parse");
-    const pdfParse = "default" in pdfParseModule
-      ? (pdfParseModule as { default: (buf: Buffer) => Promise<{ text: string }> }).default
-      : (pdfParseModule as unknown as (buf: Buffer) => Promise<{ text: string }>);
-    const parsed = await pdfParse(buffer);
-    const rawText = parsed.text;
+    const rawText = await extractPdfText(buffer);
 
     const profile = await aiService.parseResumeText(rawText);
     await resumeService.saveParsedProfile(resumeId, profile, rawText);
