@@ -167,7 +167,3 @@ chrome-extension/  # LinkedIn import extension
 tests/             # Vitest unit tests
 prisma/            # Database schema
 ```
-
-## License
-
-MIT
